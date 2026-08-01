@@ -28,13 +28,15 @@
     background:radial-gradient(120% 120% at 50% -10%, var(--bg-1), var(--bg-0));
     color:var(--ink);
     font-family:var(--display);
-    overflow:hidden;
+    overflow-x:hidden;
+    overflow-y:auto;
   }
   #app{
     position:relative;
-    width:100vw; height:100vh;
+    width:100vw; min-height:100vh;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:14px;
+    padding:14px 0;
   }
 
   /* ---------- top bar: logo + credit ---------- */
@@ -81,6 +83,10 @@
   canvas#overlay{
     position:absolute; inset:0;
     width:100%; height:100%;
+    touch-action:none;
+  }
+  #stage.touch-mode{
+    background: radial-gradient(120% 120% at 50% -10%, #1a1f27, #0b0d10);
   }
 
   /* ---------- top status pill ---------- */
@@ -146,6 +152,52 @@
   }
   #startBtn:hover{ transform:translateY(-1px); box-shadow:0 8px 24px -8px var(--accent-dim); }
   #startBtn:active{ transform:translateY(0); }
+  #startModeChoice{
+    display:flex; gap:14px; flex-wrap:wrap; justify-content:center;
+    max-width:560px;
+  }
+  .mode-card{
+    position:relative;
+    width:220px;
+    background:#0d1014;
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:18px 16px;
+    cursor:pointer;
+    text-align:left;
+    color:var(--ink);
+    font-family:var(--display);
+    transition: border-color .15s ease, transform .12s ease, box-shadow .15s ease;
+  }
+  .mode-card:hover{ transform:translateY(-1px); border-color:var(--accent); }
+  .mode-card:disabled{ opacity:0.5; cursor:default; transform:none; }
+  .mode-card:active{ transform:translateY(0); }
+  .mode-card.recommended{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent-dim); }
+  .mode-card .mode-title{
+    display:block;
+    font-size:16px; font-weight:700; margin-bottom:6px;
+  }
+  .mode-card .mode-desc{
+    display:block;
+    font-family:var(--mono);
+    font-size:11px;
+    line-height:1.5;
+    color:var(--ink-dim);
+  }
+  .mode-card .mode-badge{
+    position:absolute; top:-9px; right:12px;
+    background:var(--accent);
+    color:#06121a;
+    font-family:var(--mono);
+    font-size:9px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:3px 8px;
+    border-radius:999px;
+    display:none;
+  }
+  .mode-card.recommended .mode-badge{ display:block; }
   #camErr{
     color:var(--warn);
     font-family:var(--mono);
@@ -264,14 +316,13 @@
 
   /* ---------- bottom controls ---------- */
   #controls{
-    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
-    display:flex; gap:10px; align-items:center;
+    width:min(96vw, 1200px);
+    display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; justify-content:center;
     background:var(--panel);
     border:1px solid var(--line);
     backdrop-filter: blur(8px);
-    padding:8px 10px;
+    padding:10px 16px;
     border-radius:12px;
-    z-index:5;
     font-family:var(--mono);
     font-size:11px;
   }
@@ -298,8 +349,56 @@
   }
   .credit:hover{ color:var(--accent); text-decoration:underline; }
 
+  /* ---------- mobile: panel toggle + backdrop ---------- */
+  #panelToggle{
+    display:none;
+    position:absolute; top:14px; left:14px;
+    align-items:center; gap:6px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    backdrop-filter: blur(8px);
+    color:var(--ink);
+    padding:8px 12px;
+    border-radius:999px;
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    z-index:6;
+  }
+  #panelToggle:hover{ border-color:var(--accent); color:var(--accent); }
+  #panelBackdrop{
+    position:fixed; inset:0;
+    background:rgba(5,7,9,0.55);
+    opacity:0; pointer-events:none;
+    transition: opacity .25s ease;
+    z-index:29;
+  }
+  #panelBackdrop.open{ opacity:1; pointer-events:auto; }
+  #sheetHandle{ display:none; }
+
   @media (max-width: 720px){
-    #panel{ display:none; }
+    #panelToggle{ display:flex; }
+    #panel{
+      display:block;
+      position:fixed;
+      top:auto; left:0; right:0; bottom:0;
+      width:100%; max-width:100%;
+      max-height:75vh;
+      border-radius:18px 18px 0 0;
+      transform:translateY(105%);
+      transition: transform .3s ease;
+      z-index:30;
+      padding-top:10px;
+    }
+    #panel.open{ transform:translateY(0); }
+    #sheetHandle{
+      display:block;
+      width:36px; height:4px;
+      border-radius:2px;
+      background:var(--line);
+      margin:0 auto 12px auto;
+    }
   }
   @media (max-width: 720px) and (orientation: portrait){
     #stage{ aspect-ratio: 3/4; }
@@ -337,7 +436,10 @@
       <span class="chord" id="chordText"></span>
     </div>
 
+    <button id="panelToggle" type="button">☰ Chords</button>
+
     <div id="panel">
+      <div id="sheetHandle"></div>
       <div id="panelTabs">
         <button class="panel-tab active" data-tab="chords" type="button">Chords</button>
         <button class="panel-tab" data-tab="lyrics" type="button">Lyrics</button>
@@ -354,40 +456,50 @@
         <div id="lyricsBody"></div>
       </div>
     </div>
-
-    <div id="controls">
-      <label>Song
-        <select id="songSel"></select>
-      </label>
-      <label>Sound
-        <select id="waveSel">
-          <option value="epiano" selected>soft dreamy</option>
-          <option value="pad">soft pad (sine)</option>
-          <option value="triangle">warm (triangle)</option>
-          <option value="sawtooth">bright (saw)</option>
-        </select>
-      </label>
-      <label>Vol
-        <input id="volRange" type="range" min="-30" max="-4" value="-12" step="1" />
-      </label>
-      <label>Size
-        <input id="sizeRange" type="range" min="60" max="150" value="90" step="5" />
-      </label>
-      <label>Transpose
-        <button id="transposeDown" type="button" title="Transpose down a semitone">−</button>
-        <span id="transposeVal">0</span>
-        <button id="transposeUp" type="button" title="Transpose up a semitone">+</button>
-      </label>
-    </div>
+    <div id="panelBackdrop"></div>
 
     <div id="startCard">
       <h1>Chord Wheel</h1>
-      <p>A hand-tracked radial chord player — a fixed chord wheel you play by moving your hand through it.
-        Hover your index fingertip over a slice to play that chord. Move off the wheel or close your hand into a fist to stop.
-        Needs camera access and works best in good light with your hand facing the camera.</p>
-      <button id="startBtn">Enable camera &amp; start</button>
+      <p>A radial chord wheel you can play two ways — pick whichever fits your setup.</p>
+      <div id="startModeChoice">
+        <button class="mode-card" id="startHandBtn" type="button">
+          <span class="mode-badge">Recommended</span>
+          <span class="mode-title">✋ Hand tracking</span>
+          <span class="mode-desc">Uses your camera. Hover your index finger over a slice to play it; close your hand to mute. Best with both hands free, e.g. a laptop on a desk.</span>
+        </button>
+        <button class="mode-card" id="startTouchBtn" type="button">
+          <span class="mode-badge">Recommended</span>
+          <span class="mode-title">👆 Touch</span>
+          <span class="mode-desc">No camera needed. Tap and drag across the wheel with your thumb; lift off to stop. Best on a phone.</span>
+        </button>
+      </div>
       <div id="camErr">Couldn't access the camera. Check your browser's camera permission for this page and reload.</div>
     </div>
+  </div>
+
+  <div id="controls">
+    <label>Song
+      <select id="songSel"></select>
+    </label>
+    <label>Sound
+      <select id="waveSel">
+        <option value="epiano" selected>soft dreamy</option>
+        <option value="pad">soft pad (sine)</option>
+        <option value="triangle">warm (triangle)</option>
+        <option value="sawtooth">bright (saw)</option>
+      </select>
+    </label>
+    <label>Vol
+      <input id="volRange" type="range" min="-30" max="-4" value="-12" step="1" />
+    </label>
+    <label>Size
+      <input id="sizeRange" type="range" min="60" max="150" value="90" step="5" />
+    </label>
+    <label>Transpose
+      <button id="transposeDown" type="button" title="Transpose down a semitone">−</button>
+      <span id="transposeVal">0</span>
+      <button id="transposeUp" type="button" title="Transpose up a semitone">+</button>
+    </label>
   </div>
 
 </div>
@@ -641,6 +753,24 @@ document.querySelectorAll('.panel-tab').forEach(btn=>{
   });
 });
 
+/* ---------- mobile panel: tap to open as a bottom sheet ---------- */
+const panelEl = document.getElementById('panel');
+const panelToggleEl = document.getElementById('panelToggle');
+const panelBackdropEl = document.getElementById('panelBackdrop');
+
+function openPanel(){
+  panelEl.classList.add('open');
+  panelBackdropEl.classList.add('open');
+}
+function closePanel(){
+  panelEl.classList.remove('open');
+  panelBackdropEl.classList.remove('open');
+}
+panelToggleEl.addEventListener('click', ()=>{
+  panelEl.classList.contains('open') ? closePanel() : openPanel();
+});
+panelBackdropEl.addEventListener('click', closePanel);
+
 loadSong(Object.keys(SONGS)[0]);
 
 
@@ -813,11 +943,14 @@ function resizeCanvas(){
 }
 function placeWheel(){
   // Fixed, stationary position, biased toward the right side of the frame
-  // (leaving room for the panel on the left), clamped so it always stays
-  // fully on-screen. Radius also scales with the "Size" slider.
+  // (leaving room for the panel on the left, on wide screens where it sits
+  // beside the wheel). Below 720px the panel is a bottom sheet instead, so
+  // it doesn't need to be dodged horizontally. Radius also scales with the
+  // "Size" slider.
   const panelEl = document.getElementById('panel');
+  const isSidePanelLayout = window.innerWidth > 720;
   let reservedLeft = 0;
-  if(panelEl && getComputedStyle(panelEl).display !== 'none'){
+  if(isSidePanelLayout && panelEl && getComputedStyle(panelEl).display !== 'none'){
     reservedLeft = panelEl.offsetWidth + 28; // panel width + its margins
   }
   const usableW = Math.max(overlay.width - reservedLeft, overlay.width * 0.4);
@@ -931,6 +1064,24 @@ function sliceIndexFromAngle(dx, dy){
   return Math.floor(ang / sliceAngle);
 }
 
+// Shared hit-testing thresholds — same rules used by both hand tracking and
+// touch mode, so a "hover" means the same thing regardless of input method.
+const WHEEL_DEADZONE_RATIO = 0.16; // inner circle around the hub that never counts as a slice
+const WHEEL_OUTER_RATIO = 1.05;    // just past the drawn edge still counts as "on" the wheel
+
+// Given a point (in canvas pixels) and the current wheel geometry, returns
+// the slice index it's hovering over, or -1 if it's in the dead zone / off
+// the wheel entirely.
+function hoverIndexForPoint(px, py){
+  if(!wheelCenter) return -1;
+  const dx = px - wheelCenter.x;
+  const dy = py - wheelCenter.y;
+  const dist = Math.hypot(dx, dy);
+  if(dist < wheelRadiusPx * WHEEL_DEADZONE_RATIO) return -1;
+  if(dist > wheelRadiusPx * WHEEL_OUTER_RATIO) return -1;
+  return sliceIndexFromAngle(dx, dy);
+}
+
 let lastLandmarks = null;
 
 function onResults(results){
@@ -961,19 +1112,8 @@ function onResults(results){
   const toPx = (pt) => ({ x: (1-pt.x) * w, y: pt.y * h });
 
   const indexTip = toPx(lm[8]);
-
-  const dx = indexTip.x - wheelCenter.x;
-  const dy = indexTip.y - wheelCenter.y;
-  const dist = Math.hypot(dx,dy);
-
   const fist = isFist(lm);
-  const inDeadzone = dist < wheelRadiusPx*0.16;
-  const outsideWheel = dist > wheelRadiusPx*1.05;
-
-  let hoverIdx = -1;
-  if(!fist && !inDeadzone && !outsideWheel){
-    hoverIdx = sliceIndexFromAngle(dx,dy);
-  }
+  const hoverIdx = fist ? -1 : hoverIndexForPoint(indexTip.x, indexTip.y);
 
   drawWheel(wheelCenter.x, wheelCenter.y, wheelRadiusPx, hoverIdx, indexTip);
 
@@ -993,18 +1133,111 @@ function onResults(results){
 }
 
 /* ============================================================
+   Touch mode — same wheel and hit-testing as hand tracking, driven
+   by a finger/thumb on the screen instead of a tracked hand. Uses
+   the Pointer Events API so it also works with mouse/trackpad if
+   someone picks Touch mode on a desktop browser.
+   ============================================================ */
+let touchPoint = null;     // {x,y} in canvas pixels, or null when not touching
+let activePointerId = null;
+let touchLoopRunning = false;
+
+function handlePointerMove(e){
+  if(e.pointerId !== activePointerId) return;
+  const rect = overlay.getBoundingClientRect();
+  touchPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+function handlePointerEnd(e){
+  if(e.pointerId !== activePointerId) return;
+  activePointerId = null;
+  touchPoint = null;
+}
+
+function initTouchMode(){
+  document.getElementById('stage').classList.add('touch-mode');
+  video.style.display = 'none';
+
+  overlay.addEventListener('pointerdown', (e)=>{
+    activePointerId = e.pointerId;
+    overlay.setPointerCapture(e.pointerId);
+    const rect = overlay.getBoundingClientRect();
+    touchPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  });
+  overlay.addEventListener('pointermove', handlePointerMove);
+  overlay.addEventListener('pointerup', handlePointerEnd);
+  overlay.addEventListener('pointercancel', handlePointerEnd);
+  overlay.addEventListener('pointerleave', handlePointerEnd);
+
+  resizeCanvas();
+  placeWheel();
+
+  if(!touchLoopRunning){
+    touchLoopRunning = true;
+    requestAnimationFrame(touchTick);
+  }
+}
+
+function touchTick(){
+  resizeCanvas();
+  ctx.clearRect(0,0,overlay.width, overlay.height);
+  if(!wheelCenter) placeWheel();
+
+  const hoverIdx = touchPoint ? hoverIndexForPoint(touchPoint.x, touchPoint.y) : -1;
+  drawWheel(wheelCenter.x, wheelCenter.y, wheelRadiusPx, hoverIdx, touchPoint);
+
+  if(hoverIdx >= 0){
+    statusText.textContent = 'playing';
+    statusEl.classList.add('live');
+    playSlice(hoverIdx);
+  } else {
+    statusText.textContent = touchPoint ? 'move onto a slice' : 'tap the wheel to play';
+    statusEl.classList.remove('live');
+    stopChord();
+  }
+  requestAnimationFrame(touchTick);
+}
+
+/* ============================================================
    Startup
    ============================================================ */
-const startBtn = document.getElementById('startBtn');
+const startHandBtn = document.getElementById('startHandBtn');
+const startTouchBtn = document.getElementById('startTouchBtn');
 const startCard = document.getElementById('startCard');
 const camErr = document.getElementById('camErr');
 const songSel = document.getElementById('songSel');
 
 songSel.addEventListener('change', ()=>{ loadSong(songSel.value); });
 
-startBtn.addEventListener('click', async ()=>{
-  startBtn.disabled = true;
-  startBtn.textContent = 'Starting…';
+// Suggest touch on small/narrow screens (phones), hand tracking otherwise —
+// just a visual hint via the "Recommended" badge; either button always works.
+(function markRecommendedMode(){
+  const preferTouch = window.innerWidth <= 720;
+  (preferTouch ? startTouchBtn : startHandBtn).classList.add('recommended');
+})();
+
+startTouchBtn.addEventListener('click', async ()=>{
+  startTouchBtn.disabled = true;
+  startHandBtn.disabled = true;
+  try{
+    await Tone.start();
+    await buildSynth();
+    initTouchMode();
+    document.getElementById('panelHint').textContent =
+      'Clockwise from top. The wheel is fixed in place — drag your thumb across it to play a slice. Lift off to stop.';
+    startCard.style.display = 'none';
+  } catch(err){
+    console.error(err);
+    camErr.textContent = 'Something went wrong starting audio. Try reloading the page.';
+    camErr.style.display = 'block';
+    startTouchBtn.disabled = false;
+    startHandBtn.disabled = false;
+  }
+});
+
+startHandBtn.addEventListener('click', async ()=>{
+  startHandBtn.disabled = true;
+  startTouchBtn.disabled = true;
+  startHandBtn.querySelector('.mode-title').textContent = '✋ Starting…';
   try{
     await Tone.start();
     await buildSynth();
@@ -1032,9 +1265,11 @@ startBtn.addEventListener('click', async ()=>{
     startCard.style.display = 'none';
   } catch(err){
     console.error(err);
+    camErr.textContent = "Couldn't access the camera. Check your browser's camera permission for this page and reload, or try Touch mode instead — it doesn't need a camera.";
     camErr.style.display = 'block';
-    startBtn.disabled = false;
-    startBtn.textContent = 'Enable camera & start';
+    startHandBtn.disabled = false;
+    startTouchBtn.disabled = false;
+    startHandBtn.querySelector('.mode-title').textContent = '✋ Hand tracking';
   }
 });
 </script>
