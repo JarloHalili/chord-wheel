@@ -24,7 +24,7 @@
        margins on either side) AND by viewport height (via the stage's
        16:9 aspect ratio), so all three always match exactly and the whole
        layout fits on screen without scrolling on shorter windows. */
-    --bar-w: min(92vw, 1400px, max(320px, calc((100vh - 230px) * 16 / 9)));
+    --bar-w: min(97vw, 1500px, max(320px, calc((100vh - 230px) * 16 / 9)));
   }
   @font-face{
     font-family:'Space Grotesk';
@@ -348,6 +348,12 @@
   #controls label{ color:var(--ink-dim); display:flex; align-items:center; gap:6px; }
   #controls input[type=range]{ width:80px; accent-color:var(--accent); }
   #transposeDown, #transposeUp{ width:26px; padding:6px 0; text-align:center; font-weight:700; }
+  #calibToggle{ min-width:38px; font-weight:700; }
+  #calibToggle.on{
+    background:var(--accent);
+    color:#06121a;
+    border-color:var(--accent);
+  }
   #transposeVal{ min-width:2.2ch; text-align:center; color:var(--ink); font-weight:600; }
   #songSel{ max-width:160px; }
 
@@ -410,7 +416,7 @@
   }
   @media (max-width: 720px) and (orientation: portrait){
     :root{
-      --bar-w: min(94vw, max(220px, calc((100vh - 260px) * 3/4)));
+      --bar-w: min(97vw, max(220px, calc((100vh - 260px) * 3/4)));
     }
     #stage{
       aspect-ratio: 3/4;
@@ -512,6 +518,9 @@
       <button id="transposeDown" type="button" title="Transpose down a semitone">−</button>
       <span id="transposeVal">0</span>
       <button id="transposeUp" type="button" title="Transpose up a semitone">+</button>
+    </label>
+    <label id="calibLabel" style="display:none;">Calibration
+      <button id="calibToggle" type="button" title="Show the raw hand-tracking skeleton instead of the wheel">Off</button>
     </label>
   </div>
 
@@ -894,6 +903,14 @@ document.getElementById('transposeUp').addEventListener('click', ()=>{
   retriggerCurrentChord();
 });
 
+const calibToggleBtn = document.getElementById('calibToggle');
+calibToggleBtn.addEventListener('click', ()=>{
+  calibrationMode = !calibrationMode;
+  calibToggleBtn.textContent = calibrationMode ? 'On' : 'Off';
+  calibToggleBtn.classList.toggle('on', calibrationMode);
+  if(calibrationMode) stopChord();
+});
+
 // --- Loudness normalization -------------------------------------------
 // PolySynth voices are all triggered at the same per-note gain, so a chord
 // with fewer notes (e.g. a 3-note triad) simply sums to less total energy
@@ -1036,6 +1053,67 @@ function handSize(lm){
   return Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
 }
 
+/* ============================================================
+   Calibration / showcase mode — draws the tracked hand as a
+   skeleton (landmarks + connections) instead of the wheel, so
+   people can see how the hand tracking actually works.
+   ============================================================ */
+let calibrationMode = false;
+
+// Standard 21-point MediaPipe Hands topology.
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],       // thumb
+  [0,5],[5,6],[6,7],[7,8],       // index
+  [5,9],[9,10],[10,11],[11,12],  // middle
+  [9,13],[13,14],[14,15],[15,16],// ring
+  [13,17],[17,18],[18,19],[19,20],// pinky
+  [0,17]                          // palm base
+];
+
+const FINGER_GROUPS = [
+  { idxs:[1,2,3,4],   color:'#ffd166' }, // thumb
+  { idxs:[5,6,7,8],   color:'#5fd0ff' }, // index
+  { idxs:[9,10,11,12],color:'#7fe3c4' }, // middle
+  { idxs:[13,14,15,16],color:'#c792ea' },// ring
+  { idxs:[17,18,19,20],color:'#ff8a5f' } // pinky
+];
+
+function drawHandSkeleton(lm, w, h){
+  const pts = lm.map(pt => ({ x:(1-pt.x)*w, y:pt.y*h, z:pt.z }));
+
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(238,241,244,0.55)';
+  ctx.shadowColor = '#5fd0ff';
+  ctx.shadowBlur = 8;
+  HAND_CONNECTIONS.forEach(([a,b])=>{
+    ctx.beginPath();
+    ctx.moveTo(pts[a].x, pts[a].y);
+    ctx.lineTo(pts[b].x, pts[b].y);
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+
+  const drawJoint = (p, color, r)=>{
+    // subtle pseudo-3D: landmarks closer to the camera (more negative z) draw slightly larger
+    const depthScale = Math.max(0.75, Math.min(1.35, 1 - p.z * 3));
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r * depthScale, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.fill();
+  };
+  ctx.shadowBlur = 0;
+  drawJoint(pts[0], '#eef1f4', 7); // wrist
+  FINGER_GROUPS.forEach(fg=>{
+    fg.idxs.forEach(i=>{
+      const isTip = i===4 || i===8 || i===12 || i===16 || i===20;
+      drawJoint(pts[i], fg.color, isTip ? 7 : 5);
+    });
+  });
+  ctx.shadowBlur = 0;
+}
+
 function drawWheel(cx, cy, radius, highlightIdx, indexPt){
   const sliceAngle = (Math.PI * 2) / SLICE_COUNT;
   const startOffset = -Math.PI/2 - sliceAngle/2; // so slice 0 is centered at top
@@ -1140,7 +1218,39 @@ function onResults(results){
   // change if the window is resized or the person hits "Recenter".
   if(!wheelCenter) placeWheel();
 
-  if(!results.multiHandLandmarks || results.multiHandLandmarks.length === 0){
+  const noHand = !results.multiHandLandmarks || results.multiHandLandmarks.length === 0;
+
+  if(calibrationMode){
+    // Showcase mode: draw the raw tracked skeleton instead of the wheel,
+    // and never play chords — this is just for demonstrating the tracking.
+    if(noHand){
+      statusEl.classList.remove('live');
+      statusText.textContent = 'calibration — no hand detected';
+      document.getElementById('chordText').textContent = '';
+      stopChord();
+      lastLandmarks = null;
+      return;
+    }
+    const lm = results.multiHandLandmarks[0];
+    lastLandmarks = lm;
+    drawHandSkeleton(lm, w, h);
+
+    const handedness = results.multiHandedness && results.multiHandedness[0];
+    // Mirrored display means the model's raw Left/Right label reads
+    // backwards from the person's own point of view — flip it for display.
+    const rawLabel = handedness ? handedness.label : null;
+    const displayLabel = rawLabel === 'Left' ? 'Right' : (rawLabel === 'Right' ? 'Left' : '?');
+    const confidencePct = handedness ? Math.round(handedness.score * 100) : null;
+
+    statusEl.classList.add('live');
+    statusText.textContent = 'calibration — 21 landmarks tracked';
+    document.getElementById('chordText').textContent =
+      confidencePct !== null ? `${displayLabel} hand · ${confidencePct}%` : displayLabel;
+    stopChord();
+    return;
+  }
+
+  if(noHand){
     drawWheel(wheelCenter.x, wheelCenter.y, wheelRadiusPx, -1, null);
     statusEl.classList.remove('live');
     statusText.textContent = 'no hand detected';
@@ -1306,6 +1416,7 @@ startHandBtn.addEventListener('click', async ()=>{
 
     resizeCanvas();
     placeWheel();
+    document.getElementById('calibLabel').style.display = 'flex';
     startCard.style.display = 'none';
   } catch(err){
     console.error(err);
