@@ -551,7 +551,26 @@ function parseChordSymbol(sym){
   const quality = QUALITY_INTERVALS.hasOwnProperty(qualRaw) ? qualRaw : (qualRaw === '' ? '' : '');
   const intervals = QUALITY_INTERVALS[quality] || QUALITY_INTERVALS[''];
   const bassIdx = bassRaw ? noteIndex(bassRaw) : null;
-  return { rootIdx, intervals, bassIdx };
+  return { rootIdx, qualRaw, intervals, bassIdx };
+}
+
+// Shifts a chord *symbol* itself — e.g. "Db" + 1 semitone -> "D" — rather
+// than just the audio pitch. Keeps the quality suffix (m, 7, maj7, ...) and
+// slash-bass note intact, just relabels the root/bass letters. Used by the
+// Transpose +/- buttons so the wheel and lyrics always show the chord name
+// that's actually sounding, not the original untransposed one.
+function transposeChordSymbol(sym, semitones){
+  if(!semitones) return sym;
+  const parsed = parseChordSymbol(sym);
+  if(!parsed) return sym;
+  const { rootIdx, qualRaw, bassIdx } = parsed;
+  const newRootIdx = ((rootIdx + semitones) % 12 + 12) % 12;
+  let result = CHROMATIC[newRootIdx] + qualRaw;
+  if(bassIdx !== null){
+    const newBassIdx = ((bassIdx + semitones) % 12 + 12) % 12;
+    result += '/' + CHROMATIC[newBassIdx];
+  }
+  return result;
 }
 
 // Build actual note-name strings with octave for Tone.js
@@ -690,8 +709,8 @@ function renderChordProLine(line){
       if(pendingChords.length){
         const tag = document.createElement('span');
         tag.className = 'chord-tag';
-        tag.dataset.chord = pendingChords.join('/');
-        tag.textContent = pendingChords.join(' ');
+        tag.dataset.chord = pendingChords.join(' '); // raw, untransposed — used for both matching and re-transposing later
+        tag.textContent = pendingChords.map(c => transposeChordSymbol(c, transposeSemitones)).join(' ');
         wordEl.appendChild(tag);
         pendingChords = [];
       }
@@ -705,8 +724,8 @@ function renderChordProLine(line){
     wordEl.className = 'word';
     const tag = document.createElement('span');
     tag.className = 'chord-tag';
-    tag.dataset.chord = pendingChords.join('/');
-    tag.textContent = pendingChords.join(' ');
+    tag.dataset.chord = pendingChords.join(' ');
+    tag.textContent = pendingChords.map(c => transposeChordSymbol(c, transposeSemitones)).join(' ');
     wordEl.appendChild(tag);
     wordEl.appendChild(document.createTextNode('\u00A0'));
     lineEl.appendChild(wordEl);
@@ -740,6 +759,16 @@ function renderLyrics(song){
 function updateLyricsHighlight(activeChordName){
   document.querySelectorAll('#lyricsBody .chord-tag').forEach(tag=>{
     tag.classList.toggle('playing', !!activeChordName && tag.dataset.chord === activeChordName);
+  });
+}
+
+// Re-labels every chord tag already in the lyrics view after a transpose
+// change, without needing to fully re-parse and rebuild the lyrics sheet.
+function refreshTransposedLyricLabels(){
+  document.querySelectorAll('#lyricsBody .chord-tag').forEach(tag=>{
+    const raw = tag.dataset.chord;
+    if(!raw) return;
+    tag.textContent = raw.split(' ').map(c => transposeChordSymbol(c, transposeSemitones)).join(' ');
   });
 }
 
@@ -842,11 +871,13 @@ function updateTransposeLabel(){
 document.getElementById('transposeDown').addEventListener('click', ()=>{
   transposeSemitones = Math.max(-12, transposeSemitones - 1);
   updateTransposeLabel();
+  refreshTransposedLyricLabels();
   retriggerCurrentChord();
 });
 document.getElementById('transposeUp').addEventListener('click', ()=>{
   transposeSemitones = Math.min(12, transposeSemitones + 1);
   updateTransposeLabel();
+  refreshTransposedLyricLabels();
   retriggerCurrentChord();
 });
 
@@ -900,7 +931,7 @@ function playSlice(i){
   synth.triggerAttack(notes);
   heldNotes = notes;
   currentChordIdx = i;
-  document.getElementById('chordText').textContent = sliceChords[i];
+  document.getElementById('chordText').textContent = transposeChordSymbol(sliceChords[i], transposeSemitones);
   updateLyricsHighlight(sliceChords[i]);
 }
 function stopChord(){
@@ -1027,7 +1058,7 @@ function drawWheel(cx, cy, radius, highlightIdx, indexPt){
     ctx.font = isHi ? '700 20px Space Grotesk, sans-serif' : '600 16px Space Grotesk, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(sliceChords[i], lx, ly);
+    ctx.fillText(transposeChordSymbol(sliceChords[i], transposeSemitones), lx, ly);
   }
 
   // center hub
