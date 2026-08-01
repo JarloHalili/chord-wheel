@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chord Wheel — hand-tracked chord player</title>
+<style>
+  :root{
+    --bg-0:#0b0d10;
+    --bg-1:#12151a;
+    --panel:#161a20cc;
+    --line:#2a3038;
+    --ink:#eef1f4;
+    --ink-dim:#8b95a1;
+    --accent:#5fd0ff;
+    --accent-dim:#5fd0ff33;
+    --warn:#ff8a5f;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+    --display: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+  }
+  @font-face{
+    font-family:'Space Grotesk';
+    src: local('Space Grotesk');
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:radial-gradient(120% 120% at 50% -10%, var(--bg-1), var(--bg-0));
+    color:var(--ink);
+    font-family:var(--display);
+    overflow:hidden;
+  }
+  #app{
+    position:relative;
+    width:100vw; height:100vh;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px;
+  }
+
+  /* ---------- top bar: logo + credit ---------- */
+  #topbar{
+    width:min(96vw, 1200px);
+    display:flex; align-items:center; gap:10px;
+  }
+  #logo{
+    display:flex; align-items:center; gap:9px;
+  }
+  #logoIcon{ display:block; flex:none; }
+  #logoText{
+    font-family:var(--display);
+    font-weight:700;
+    font-size:20px;
+    letter-spacing:-0.01em;
+    color:var(--ink);
+  }
+  #topbarDivider{
+    color:var(--line);
+    font-size:14px;
+  }
+  #topbar .credit{
+    font-size:11px;
+  }
+
+  /* ---------- stage (video + overlay) ---------- */
+  #stage{
+    position:relative;
+    width:min(96vw, 1200px);
+    aspect-ratio: 16/9;
+    border-radius:18px;
+    overflow:hidden;
+    background:#000;
+    box-shadow: 0 0 0 1px var(--line), 0 30px 80px -30px #000c;
+  }
+  video{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;
+    transform:scaleX(-1);
+    opacity:0.55;
+  }
+  canvas#overlay{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+  }
+
+  /* ---------- top status pill ---------- */
+  #status{
+    position:absolute; top:14px; right:14px;
+    display:flex; gap:8px; align-items:center;
+    background:var(--panel);
+    border:1px solid var(--line);
+    backdrop-filter: blur(8px);
+    padding:8px 14px;
+    border-radius:999px;
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.02em;
+    z-index:5;
+  }
+  #status .dot{
+    width:8px; height:8px; border-radius:50%;
+    background:var(--ink-dim);
+    transition: background .15s ease, box-shadow .15s ease;
+  }
+  #status.live .dot{ background:#5fffb0; box-shadow:0 0 10px #5fffb0aa; }
+  #status .chord{
+    color:var(--accent);
+    font-weight:600;
+    min-width: 3ch;
+  }
+
+  /* ---------- start overlay ---------- */
+  #startCard{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:18px;
+    background:linear-gradient(180deg, #0b0d10ee, #0b0d10f5);
+    z-index:20;
+    text-align:center;
+    padding:32px;
+  }
+  #startCard h1{
+    font-size:clamp(22px, 4vw, 32px);
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  #startCard p{
+    color:var(--ink-dim);
+    max-width:420px;
+    margin:0;
+    font-size:14px;
+    line-height:1.6;
+  }
+  #startBtn{
+    font-family:var(--mono);
+    font-size:14px;
+    letter-spacing:0.03em;
+    background:var(--accent);
+    color:#06121a;
+    border:none;
+    padding:14px 28px;
+    border-radius:10px;
+    cursor:pointer;
+    font-weight:700;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  #startBtn:hover{ transform:translateY(-1px); box-shadow:0 8px 24px -8px var(--accent-dim); }
+  #startBtn:active{ transform:translateY(0); }
+  #camErr{
+    color:var(--warn);
+    font-family:var(--mono);
+    font-size:12px;
+    max-width:420px;
+    display:none;
+  }
+
+  /* ---------- side panel: chord editor ---------- */
+  #panel{
+    position:absolute; top:14px; left:14px;
+    width:250px;
+    max-height: calc(100% - 28px);
+    overflow-y:auto;
+    background:var(--panel);
+    border:1px solid var(--line);
+    backdrop-filter: blur(8px);
+    border-radius:14px;
+    padding:14px;
+    z-index:5;
+    font-family:var(--mono);
+    font-size:11px;
+  }
+  #panel h2{
+    margin:0 0 10px 0;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--ink-dim);
+    font-weight:600;
+  }
+  #panelTabs{
+    display:flex; gap:6px;
+    margin-bottom:12px;
+  }
+  .panel-tab{
+    flex:1;
+    background:#0d1014;
+    border:1px solid var(--line);
+    color:var(--ink-dim);
+    padding:6px 8px;
+    border-radius:8px;
+    cursor:pointer;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.03em;
+  }
+  .panel-tab.active{
+    color:var(--ink);
+    border-color:var(--accent);
+    background:#0d1014;
+    box-shadow: inset 0 0 0 1px var(--accent-dim);
+  }
+  .panel-tab:hover{ color:var(--accent); }
+  .seg-row{
+    display:flex; align-items:center; gap:6px;
+    margin-bottom:6px;
+  }
+  .seg-row .swatch{
+    width:8px; height:8px; border-radius:2px; flex:none;
+  }
+  .seg-row input{
+    flex:1; min-width:0;
+    background:#0d1014;
+    border:1px solid var(--line);
+    color:var(--ink);
+    border-radius:6px;
+    padding:5px 7px;
+    font-family:var(--mono);
+    font-size:11px;
+  }
+  .seg-row input:focus{ outline:1px solid var(--accent); border-color:var(--accent); }
+
+  #panelHint{
+    margin-top:8px;
+    color:var(--ink-dim);
+    line-height:1.5;
+    font-size:10px;
+  }
+
+  /* ---------- lyrics tab ---------- */
+  #lyricsBody{
+    font-family:var(--display);
+    font-size:13px;
+    line-height:2.4;
+    color:var(--ink);
+  }
+  #lyricsBody .lyric-line{
+    margin-bottom:14px;
+    white-space:normal;
+  }
+  #lyricsBody .word{
+    position:relative;
+    display:inline-block;
+    margin-right:0.35em;
+  }
+  #lyricsBody .chord-tag{
+    position:absolute;
+    top:-1.35em; left:0;
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:700;
+    color:var(--accent);
+    white-space:nowrap;
+    transition: color .15s ease, text-shadow .15s ease;
+  }
+  #lyricsBody .chord-tag.playing{
+    color:#5fffb0;
+    text-shadow: 0 0 10px #5fffb0aa;
+  }
+  #lyricsEmpty{
+    color:var(--ink-dim);
+    line-height:1.6;
+    font-size:11px;
+  }
+
+  /* ---------- bottom controls ---------- */
+  #controls{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    display:flex; gap:10px; align-items:center;
+    background:var(--panel);
+    border:1px solid var(--line);
+    backdrop-filter: blur(8px);
+    padding:8px 10px;
+    border-radius:12px;
+    z-index:5;
+    font-family:var(--mono);
+    font-size:11px;
+  }
+  #controls button, #controls select{
+    background:#0d1014;
+    border:1px solid var(--line);
+    color:var(--ink);
+    padding:7px 10px;
+    border-radius:8px;
+    cursor:pointer;
+    font-family:var(--mono);
+    font-size:11px;
+  }
+  #controls button:hover{ border-color:var(--accent); color:var(--accent); }
+  #controls label{ color:var(--ink-dim); display:flex; align-items:center; gap:6px; }
+  #controls input[type=range]{ width:80px; accent-color:var(--accent); }
+  #transposeDown, #transposeUp{ width:26px; padding:6px 0; text-align:center; font-weight:700; }
+  #transposeVal{ min-width:2.2ch; text-align:center; color:var(--ink); font-weight:600; }
+  #songSel{ max-width:160px; }
+
+  .credit{
+    font-family:var(--mono); font-size:10px; color:var(--ink-dim);
+    text-decoration:none;
+  }
+  .credit:hover{ color:var(--accent); text-decoration:underline; }
+
+  @media (max-width: 720px){
+    #panel{ display:none; }
+  }
+  @media (max-width: 720px) and (orientation: portrait){
+    #stage{ aspect-ratio: 3/4; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <div id="logo">
+      <svg id="logoIcon" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14.5" fill="none" stroke="#2a3038" stroke-width="1.5"/>
+        <path d="M16 16 L16 1.5 A14.5 14.5 0 0 1 28.55 8.75 Z" fill="#5fd0ff" opacity="0.85"/>
+        <path d="M16 16 L28.55 8.75 A14.5 14.5 0 0 1 28.55 23.25 Z" fill="#7fe3c4" opacity="0.85"/>
+        <path d="M16 16 L28.55 23.25 A14.5 14.5 0 0 1 16 30.5 Z" fill="#ffd166" opacity="0.85"/>
+        <path d="M16 16 L16 30.5 A14.5 14.5 0 0 1 3.45 23.25 Z" fill="#ff8a5f" opacity="0.85"/>
+        <path d="M16 16 L3.45 23.25 A14.5 14.5 0 0 1 3.45 8.75 Z" fill="#c792ea" opacity="0.85"/>
+        <path d="M16 16 L3.45 8.75 A14.5 14.5 0 0 1 16 1.5 Z" fill="#89ddff" opacity="0.85"/>
+        <circle cx="16" cy="16" r="4.5" fill="#12151a" stroke="#2a3038" stroke-width="1"/>
+      </svg>
+      <span id="logoText">Chord Wheel</span>
+    </div>
+    <span id="topbarDivider">·</span>
+    <div class="credit">created by josecarloshalili</div>
+  </div>
+
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+
+    <div id="status">
+      <div class="dot"></div>
+      <span id="statusText">idle</span>
+      <span class="chord" id="chordText"></span>
+    </div>
+
+    <div id="panel">
+      <div id="panelTabs">
+        <button class="panel-tab active" data-tab="chords" type="button">Chords</button>
+        <button class="panel-tab" data-tab="lyrics" type="button">Lyrics</button>
+      </div>
+
+      <div id="chordsTab" class="panel-tab-content">
+        <h2 id="chordsTabTitle">Chord wheel — 8 segments</h2>
+        <div id="segRows"></div>
+        <div id="panelHint">Clockwise from top. The wheel is fixed in place — move your hand into a slice with your index finger. Open palm = ready, closed fist = mute.</div>
+      </div>
+
+      <div id="lyricsTab" class="panel-tab-content" style="display:none;">
+        <h2>Lyrics &amp; chord guide</h2>
+        <div id="lyricsBody"></div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <label>Song
+        <select id="songSel"></select>
+      </label>
+      <label>Sound
+        <select id="waveSel">
+          <option value="epiano" selected>soft dreamy</option>
+          <option value="pad">soft pad (sine)</option>
+          <option value="triangle">warm (triangle)</option>
+          <option value="sawtooth">bright (saw)</option>
+        </select>
+      </label>
+      <label>Vol
+        <input id="volRange" type="range" min="-30" max="-4" value="-12" step="1" />
+      </label>
+      <label>Size
+        <input id="sizeRange" type="range" min="60" max="150" value="90" step="5" />
+      </label>
+      <label>Transpose
+        <button id="transposeDown" type="button" title="Transpose down a semitone">−</button>
+        <span id="transposeVal">0</span>
+        <button id="transposeUp" type="button" title="Transpose up a semitone">+</button>
+      </label>
+    </div>
+
+    <div id="startCard">
+      <h1>Chord Wheel</h1>
+      <p>A hand-tracked radial chord player — a fixed chord wheel you play by moving your hand through it.
+        Hover your index fingertip over a slice to play that chord. Move off the wheel or close your hand into a fist to stop.
+        Needs camera access and works best in good light with your hand facing the camera.</p>
+      <button id="startBtn">Enable camera &amp; start</button>
+      <div id="camErr">Couldn't access the camera. Check your browser's camera permission for this page and reload.</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js" crossorigin="anonymous"></script>
+<script src="songs.js"></script>
+
+<script>
+/* ============================================================
+   Music theory: chord-symbol -> note names
+   ============================================================ */
+const CHROMATIC = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+const NOTE_ALIASES = {
+  'C#':'Db','D#':'Eb','F#':'Gb','G#':'Ab','A#':'Bb',
+  'B#':'C','Cb':'B','Fb':'E','E#':'F'
+};
+const QUALITY_INTERVALS = {
+  ''    : [0,4,7],       // major
+  'maj' : [0,4,7],
+  'M'   : [0,4,7],
+  'm'   : [0,3,7],       // minor
+  'min' : [0,3,7],
+  '7'   : [0,4,7,10],    // dominant 7
+  'maj7': [0,4,7,11],
+  'M7'  : [0,4,7,11],
+  'm7'  : [0,3,7,10],
+  'min7': [0,3,7,10],
+  'dim' : [0,3,6],
+  'dim7': [0,3,6,9],
+  'aug' : [0,4,8],
+  'sus2': [0,2,7],
+  'sus4': [0,5,7],
+};
+
+function noteIndex(name){
+  name = NOTE_ALIASES[name] || name;
+  return CHROMATIC.indexOf(name);
+}
+
+// Parses things like "Db", "Ebm", "Ab7", "Ebm/Bb", "Bb7", "Fmaj7"
+function parseChordSymbol(sym){
+  const m = sym.trim().match(/^([A-G](?:b|#)?)([a-zA-Z0-9]*)(?:\/([A-G](?:b|#)?))?$/);
+  if(!m) return null;
+  const [, rootRaw, qualRaw, bassRaw] = m;
+  const rootIdx = noteIndex(rootRaw);
+  if(rootIdx < 0) return null;
+  const quality = QUALITY_INTERVALS.hasOwnProperty(qualRaw) ? qualRaw : (qualRaw === '' ? '' : '');
+  const intervals = QUALITY_INTERVALS[quality] || QUALITY_INTERVALS[''];
+  const bassIdx = bassRaw ? noteIndex(bassRaw) : null;
+  return { rootIdx, intervals, bassIdx };
+}
+
+// Build actual note-name strings with octave for Tone.js
+function chordToNotes(sym, rootOctave = 4){
+  const parsed = parseChordSymbol(sym);
+  if(!parsed) return [];
+  const { rootIdx, intervals, bassIdx } = parsed;
+
+  // Roots in the upper half of the chromatic scale (Gb through B) push most
+  // of their chord tones over the octave boundary sooner than roots in the
+  // lower half (C through F), since octaves are anchored at C. Left alone,
+  // that makes chords like Bb7 sound noticeably higher than chords like Db —
+  // even though each is "correct" on its own. Dropping the root an octave
+  // for those upper-half roots keeps every chord in a similar register.
+  const effectiveRootOctave = rootIdx >= 6 ? rootOctave - 1 : rootOctave;
+
+  const notes = intervals.map(semis => {
+    const idx = (rootIdx + semis) % 12;
+    const oct = effectiveRootOctave + Math.floor((rootIdx + semis) / 12);
+    return CHROMATIC[idx] + oct;
+  });
+  if(bassIdx !== null){
+    // bass note an octave below the root, lowest voice
+    let bassOct = effectiveRootOctave - 1;
+    notes.unshift(CHROMATIC[bassIdx] + bassOct);
+  }
+  return notes;
+}
+
+/* ============================================================
+   Audio state (declared early — loadSong() below calls stopChord(),
+   which needs these to already exist)
+   ============================================================ */
+let synth = null;
+let chorusFx = null;
+let reverbFx = null;
+let currentChordIdx = -1;
+let audioReady = false;
+let heldNotes = [];
+let baseVolumeDb = -12;
+let lastCompensationDb = 0;
+let transposeSemitones = 0;
+
+/* ============================================================
+   Wheel configuration — songs drive both the chord set and how
+   many slices the wheel is divided into.
+
+   Song data lives in songs.js (window.CHORD_WHEEL_SONGS), loaded via a
+   <script src="songs.js"> tag above — so new songs can be added just by
+   editing that file, no changes needed here. This inline object is only
+   a fallback in case songs.js is missing or fails to load.
+   ============================================================ */
+const SONGS = window.CHORD_WHEEL_SONGS || {
+  look_like_christmas: {
+    name: "It's Beginning to Look a Lot Like Christmas",
+    chords: ['Db','Gb','F','Bb7','Ebm','Ab7','Ebm/Bb','Ab']
+  },
+  holly_jolly: {
+    name: "Holly Jolly Christmas",
+    chords: ['E','B7','F#7']
+  }
+};
+
+let SLICE_COUNT = 8;
+let sliceChords = [];
+
+const sliceColors = ['#5fd0ff','#7fe3c4','#ffd166','#ff8a5f','#c792ea','#89ddff','#f78fb3','#a5d6a7'];
+
+let currentSongKey = null;
+
+function loadSong(key){
+  const song = SONGS[key];
+  if(!song) return;
+  currentSongKey = key;
+  sliceChords = song.chords.slice();
+  SLICE_COUNT = sliceChords.length;
+  stopChord();
+  buildPanel();
+  renderLyrics(song);
+}
+
+function buildSongDropdown(){
+  const sel = document.getElementById('songSel');
+  sel.innerHTML = '';
+  Object.keys(SONGS).forEach(key=>{
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = SONGS[key].name;
+    sel.appendChild(opt);
+  });
+}
+buildSongDropdown();
+
+/* ============================================================
+   Chord editor panel
+   ============================================================ */
+const segRows = document.getElementById('segRows');
+function buildPanel(){
+  document.getElementById('chordsTabTitle').textContent =
+    `Chord wheel — ${sliceChords.length} segment${sliceChords.length === 1 ? '' : 's'}`;
+  segRows.innerHTML = '';
+  sliceChords.forEach((c, i)=>{
+    const row = document.createElement('div');
+    row.className = 'seg-row';
+    const sw = document.createElement('div');
+    sw.className = 'swatch';
+    sw.style.background = sliceColors[i % sliceColors.length];
+    const input = document.createElement('input');
+    input.value = c;
+    input.spellcheck = false;
+    input.addEventListener('change', ()=>{ sliceChords[i] = input.value || sliceChords[i]; });
+    row.appendChild(sw);
+    row.appendChild(input);
+    segRows.appendChild(row);
+  });
+}
+
+/* ============================================================
+   Lyrics tab — ChordPro-style parsing ("[Db]Have your-[Gb]self")
+   Chords in square brackets float above the word that follows them.
+   Blank lines in the source become paragraph breaks.
+   ============================================================ */
+function renderChordProLine(line){
+  const lineEl = document.createElement('div');
+  lineEl.className = 'lyric-line';
+  // Split the line into tokens of "word" (optionally preceded by [Chord] tags)
+  const re = /(\[[^\]]+\])|(\S+)|(\s+)/g;
+  let match;
+  let pendingChords = [];
+  while((match = re.exec(line)) !== null){
+    if(match[1]){
+      pendingChords.push(match[1].slice(1, -1));
+    } else if(match[2]){
+      const wordEl = document.createElement('span');
+      wordEl.className = 'word';
+      if(pendingChords.length){
+        const tag = document.createElement('span');
+        tag.className = 'chord-tag';
+        tag.dataset.chord = pendingChords.join('/');
+        tag.textContent = pendingChords.join(' ');
+        wordEl.appendChild(tag);
+        pendingChords = [];
+      }
+      wordEl.appendChild(document.createTextNode(match[2]));
+      lineEl.appendChild(wordEl);
+    }
+  }
+  // trailing chord with no following word (e.g. end of line) still shows
+  if(pendingChords.length){
+    const wordEl = document.createElement('span');
+    wordEl.className = 'word';
+    const tag = document.createElement('span');
+    tag.className = 'chord-tag';
+    tag.dataset.chord = pendingChords.join('/');
+    tag.textContent = pendingChords.join(' ');
+    wordEl.appendChild(tag);
+    wordEl.appendChild(document.createTextNode('\u00A0'));
+    lineEl.appendChild(wordEl);
+  }
+  return lineEl;
+}
+
+function renderLyrics(song){
+  const body = document.getElementById('lyricsBody');
+  body.innerHTML = '';
+  if(!song.lyrics || !song.lyrics.trim()){
+    const empty = document.createElement('div');
+    empty.id = 'lyricsEmpty';
+    empty.textContent = 'No lyrics added for this song yet. Add a "lyrics" field to it in songs.js — chords go in square brackets right before the word they land on, e.g. "[Db]Have yourself a [Gb]merry little Christmas".';
+    body.appendChild(empty);
+    return;
+  }
+  song.lyrics.split(/\r?\n/).forEach(line=>{
+    if(line.trim() === ''){
+      const spacer = document.createElement('div');
+      spacer.style.height = '10px';
+      body.appendChild(spacer);
+    } else {
+      body.appendChild(renderChordProLine(line));
+    }
+  });
+}
+
+// Highlights every chord tag in the lyrics view that matches whatever chord
+// is currently sounding, so the sheet lights up in sync with the wheel.
+function updateLyricsHighlight(activeChordName){
+  document.querySelectorAll('#lyricsBody .chord-tag').forEach(tag=>{
+    tag.classList.toggle('playing', !!activeChordName && tag.dataset.chord === activeChordName);
+  });
+}
+
+/* ---------- panel tab switching ---------- */
+document.querySelectorAll('.panel-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.panel-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('chordsTab').style.display = btn.dataset.tab === 'chords' ? '' : 'none';
+    document.getElementById('lyricsTab').style.display = btn.dataset.tab === 'lyrics' ? '' : 'none';
+  });
+});
+
+loadSong(Object.keys(SONGS)[0]);
+
+
+/* ============================================================
+   Audio (Tone.js)
+   ============================================================ */
+
+// Analyzing the reference clip's chord hits shows a bright, harmonically-rich
+// tone (strong 1st/2nd/3rd partials plus a shimmering upper overtone) rather
+// than a plain sine/triangle/saw — closer to an electric-piano/bell hybrid
+// with chorus on top. "dreamy EP" below reproduces that with an FM synth.
+// Envelopes use a slower attack/release than a typical synth patch so each
+// chord swells in and fades out gently, like a sustained church-piano chord,
+// rather than snapping on and off at full volume.
+async function buildSynth(){
+  if(synth) synth.dispose();
+  if(chorusFx) chorusFx.dispose();
+  if(reverbFx) reverbFx.dispose();
+
+  const preset = document.getElementById('waveSel').value;
+
+  if(preset === 'epiano'){
+    synth = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 2,
+      modulationIndex: 3.2,
+      oscillator: { type: 'sine' },
+      modulation: { type: 'sine' },
+      envelope: { attack: 0.35, decay: 0.6, sustain: 0.45, release: 2.0 },
+      modulationEnvelope: { attack: 0.3, decay: 0.4, sustain: 0.25, release: 1.4 }
+    });
+    chorusFx = new Tone.Chorus(3.8, 2.2, 0.35).start();
+    reverbFx = new Tone.Reverb({ decay: 2.2, wet: 0.24 });
+    await reverbFx.generate();
+    synth.chain(chorusFx, reverbFx, Tone.Destination);
+  } else if(preset === 'pad'){
+    synth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.4, decay: 0.3, sustain: 0.6, release: 2.0 }
+    });
+    chorusFx = new Tone.Chorus(3, 1.8, 0.25).start();
+    reverbFx = new Tone.Reverb({ decay: 1.8, wet: 0.18 });
+    await reverbFx.generate();
+    synth.chain(chorusFx, reverbFx, Tone.Destination);
+  } else {
+    // triangle / sawtooth — still given a soft swell rather than a hard onset
+    synth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: preset },
+      envelope: { attack: 0.25, decay: 0.15, sustain: 0.65, release: 1.2 }
+    }).toDestination();
+  }
+
+  baseVolumeDb = parseFloat(document.getElementById('volRange').value);
+  synth.volume.value = baseVolumeDb;
+}
+document.getElementById('waveSel').addEventListener('change', buildSynth);
+document.getElementById('volRange').addEventListener('input', (e)=>{
+  baseVolumeDb = parseFloat(e.target.value);
+  if(synth) synth.volume.value = baseVolumeDb + lastCompensationDb;
+});
+document.getElementById('sizeRange').addEventListener('input', (e)=>{
+  wheelSizeScale = parseFloat(e.target.value) / 100;
+  placeWheel();
+});
+
+const transposeValEl = document.getElementById('transposeVal');
+function updateTransposeLabel(){
+  transposeValEl.textContent = (transposeSemitones > 0 ? '+' : '') + transposeSemitones;
+}
+document.getElementById('transposeDown').addEventListener('click', ()=>{
+  transposeSemitones = Math.max(-12, transposeSemitones - 1);
+  updateTransposeLabel();
+  retriggerCurrentChord();
+});
+document.getElementById('transposeUp').addEventListener('click', ()=>{
+  transposeSemitones = Math.min(12, transposeSemitones + 1);
+  updateTransposeLabel();
+  retriggerCurrentChord();
+});
+
+// --- Loudness normalization -------------------------------------------
+// PolySynth voices are all triggered at the same per-note gain, so a chord
+// with fewer notes (e.g. a 3-note triad) simply sums to less total energy
+// than a 4-note chord — and notes clustered in a lower register read as
+// quieter to the ear at equal amplitude. Both effects together explain why
+// something like Gb (3 low notes) sounds noticeably quieter than Bb7 (4
+// notes reaching a bit higher). Bb7 is used as the reference "correct"
+// loudness, and every other chord gets boosted toward it based on how many
+// notes it has and how low its average pitch sits.
+const REF_NOTE_COUNT = 4;      // Bb7 has 4 notes
+const REF_AVG_MIDI = 63.25;    // Bb7's average note pitch, one octave up (Bb3 D4 F4 Ab4)
+
+function noteNameToMidi(name){
+  const m = name.match(/^([A-G]b?)(-?\d+)$/);
+  if(!m) return REF_AVG_MIDI;
+  const idx = CHROMATIC.indexOf(m[1]);
+  const oct = parseInt(m[2], 10);
+  return (oct + 1) * 12 + idx;
+}
+
+// Shifts an already-built note name (e.g. "Db4") by a number of semitones —
+// used for the Transpose +/- buttons, applied on top of whatever chords are
+// defined in songs.js without needing to touch the chord data itself.
+function transposeNoteName(name, semitones){
+  if(!semitones) return name;
+  const midi = noteNameToMidi(name) + semitones;
+  const idx = ((midi % 12) + 12) % 12;
+  const oct = Math.floor(midi / 12) - 1;
+  return CHROMATIC[idx] + oct;
+}
+
+function chordGainCompensationDb(notes){
+  if(!notes.length) return 0;
+  const avgMidi = notes.map(noteNameToMidi).reduce((a,b)=>a+b, 0) / notes.length;
+  const countComp = Math.max(0, 20 * Math.log10(REF_NOTE_COUNT / notes.length));
+  const pitchComp = Math.max(0, (REF_AVG_MIDI - avgMidi) * 0.35);
+  return Math.min(countComp * 0.6 + pitchComp, 8); // capped to avoid over-boosting into distortion
+}
+
+function playSlice(i){
+  if(i === currentChordIdx) return;
+  stopChord();
+  let notes = chordToNotes(sliceChords[i]);
+  if(notes.length === 0) return;
+  if(transposeSemitones) notes = notes.map(n => transposeNoteName(n, transposeSemitones));
+  lastCompensationDb = chordGainCompensationDb(notes);
+  synth.volume.value = baseVolumeDb + lastCompensationDb;
+  synth.triggerAttack(notes);
+  heldNotes = notes;
+  currentChordIdx = i;
+  document.getElementById('chordText').textContent = sliceChords[i];
+  updateLyricsHighlight(sliceChords[i]);
+}
+function stopChord(){
+  if(heldNotes.length){
+    synth.triggerRelease(heldNotes);
+    heldNotes = [];
+  }
+  currentChordIdx = -1;
+  document.getElementById('chordText').textContent = '';
+  updateLyricsHighlight(null);
+}
+// Re-plays whatever chord is currently held, e.g. after a transpose change,
+// so the person hears the new pitch immediately instead of on the next hover.
+function retriggerCurrentChord(){
+  if(currentChordIdx >= 0){
+    const idx = currentChordIdx;
+    stopChord();
+    playSlice(idx);
+  }
+}
+
+/* ============================================================
+   Camera + hand tracking
+   ============================================================ */
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctx = overlay.getContext('2d');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+
+let wheelCenter = null;   // {x,y} in canvas pixels, normalized-ish (recentered on demand)
+let wheelRadiusPx = 140;
+let wheelSizeScale = 0.9; // driven by the "Size" slider — defaults to the person's usual setting
+let camera = null;
+let handsModel = null;
+
+function resizeCanvas(){
+  overlay.width = overlay.clientWidth;
+  overlay.height = overlay.clientHeight;
+}
+function placeWheel(){
+  // Fixed, stationary position, biased toward the right side of the frame
+  // (leaving room for the panel on the left), clamped so it always stays
+  // fully on-screen. Radius also scales with the "Size" slider.
+  const panelEl = document.getElementById('panel');
+  let reservedLeft = 0;
+  if(panelEl && getComputedStyle(panelEl).display !== 'none'){
+    reservedLeft = panelEl.offsetWidth + 28; // panel width + its margins
+  }
+  const usableW = Math.max(overlay.width - reservedLeft, overlay.width * 0.4);
+  wheelRadiusPx = Math.min(usableW, overlay.height) * 0.42 * wheelSizeScale;
+
+  const margin = 16;
+  const idealX = reservedLeft + usableW * 0.66; // bias right of the usable area's center
+  const minX = reservedLeft + wheelRadiusPx + margin;
+  const maxX = overlay.width - wheelRadiusPx - margin;
+  wheelCenter = { x: Math.min(Math.max(idealX, minX), Math.max(maxX, minX)), y: overlay.height/2 };
+}
+window.addEventListener('resize', ()=>{ resizeCanvas(); placeWheel(); });
+
+function fingerIsCurled(tip, pip, wrist){
+  // curled if tip is closer to wrist than the pip joint is (roughly)
+  const dTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+  const dPip = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+  return dTip < dPip * 0.92;
+}
+
+function isFist(lm){
+  const wrist = lm[0];
+  const fingers = [
+    [8,6],   // index tip, pip
+    [12,10], // middle
+    [16,14], // ring
+    [20,18], // pinky
+  ];
+  let curled = 0;
+  fingers.forEach(([tipIdx, pipIdx])=>{
+    if(fingerIsCurled(lm[tipIdx], lm[pipIdx], wrist)) curled++;
+  });
+  return curled >= 3;
+}
+
+function handSize(lm){
+  // rough scale reference: wrist to middle-finger MCP
+  const wrist = lm[0], mcp = lm[9];
+  return Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+}
+
+function drawWheel(cx, cy, radius, highlightIdx, indexPt){
+  const sliceAngle = (Math.PI * 2) / SLICE_COUNT;
+  const startOffset = -Math.PI/2 - sliceAngle/2; // so slice 0 is centered at top
+
+  // outer ring background
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(10,14,18,0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  for(let i=0;i<SLICE_COUNT;i++){
+    const a0 = startOffset + i*sliceAngle;
+    const a1 = a0 + sliceAngle;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx, cy, radius, a0, a1);
+    ctx.closePath();
+    const isHi = i === highlightIdx;
+    ctx.fillStyle = isHi ? hexToRgba(sliceColors[i], 0.55) : hexToRgba(sliceColors[i], 0.14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // label
+    const mid = (a0+a1)/2;
+    const lr = radius * 0.62;
+    const lx = cx + Math.cos(mid)*lr;
+    const ly = cy + Math.sin(mid)*lr;
+    ctx.fillStyle = isHi ? '#ffffff' : 'rgba(255,255,255,0.75)';
+    ctx.font = isHi ? '700 20px Space Grotesk, sans-serif' : '600 16px Space Grotesk, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sliceChords[i], lx, ly);
+  }
+
+  // center hub
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius*0.16, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(20,24,30,0.85)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.stroke();
+
+  // fingertip marker
+  if(indexPt){
+    ctx.beginPath();
+    ctx.arc(indexPt.x, indexPt.y, 9, 0, Math.PI*2);
+    ctx.fillStyle = highlightIdx>=0 ? '#5fffb0' : '#ffffffaa';
+    ctx.shadowColor = highlightIdx>=0 ? '#5fffb0' : 'transparent';
+    ctx.shadowBlur = highlightIdx>=0 ? 16 : 0;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function hexToRgba(hex, alpha){
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function sliceIndexFromAngle(dx, dy){
+  const sliceAngle = (Math.PI * 2) / SLICE_COUNT;
+  let ang = Math.atan2(dy, dx) + Math.PI/2 + sliceAngle/2; // rotate so slice0 centered at top
+  ang = ((ang % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+  return Math.floor(ang / sliceAngle);
+}
+
+let lastLandmarks = null;
+
+function onResults(results){
+  resizeCanvas();
+  ctx.clearRect(0,0,overlay.width, overlay.height);
+
+  const w = overlay.width, h = overlay.height;
+
+  // The wheel is stationary — fixed to a point on screen, drawn every frame
+  // regardless of whether a hand is currently detected — rather than
+  // tracking the hand. Position/size are set once in placeWheel() and only
+  // change if the window is resized or the person hits "Recenter".
+  if(!wheelCenter) placeWheel();
+
+  if(!results.multiHandLandmarks || results.multiHandLandmarks.length === 0){
+    drawWheel(wheelCenter.x, wheelCenter.y, wheelRadiusPx, -1, null);
+    statusEl.classList.remove('live');
+    statusText.textContent = 'no hand detected';
+    stopChord();
+    lastLandmarks = null;
+    return;
+  }
+
+  const lm = results.multiHandLandmarks[0];
+  lastLandmarks = lm;
+
+  // mirror x because video is mirrored (scaleX(-1)) for a natural selfie view
+  const toPx = (pt) => ({ x: (1-pt.x) * w, y: pt.y * h });
+
+  const indexTip = toPx(lm[8]);
+
+  const dx = indexTip.x - wheelCenter.x;
+  const dy = indexTip.y - wheelCenter.y;
+  const dist = Math.hypot(dx,dy);
+
+  const fist = isFist(lm);
+  const inDeadzone = dist < wheelRadiusPx*0.16;
+  const outsideWheel = dist > wheelRadiusPx*1.05;
+
+  let hoverIdx = -1;
+  if(!fist && !inDeadzone && !outsideWheel){
+    hoverIdx = sliceIndexFromAngle(dx,dy);
+  }
+
+  drawWheel(wheelCenter.x, wheelCenter.y, wheelRadiusPx, hoverIdx, indexTip);
+
+  if(fist){
+    statusText.textContent = 'fist — muted';
+    statusEl.classList.remove('live');
+    stopChord();
+  } else if(hoverIdx >= 0){
+    statusText.textContent = 'playing';
+    statusEl.classList.add('live');
+    playSlice(hoverIdx);
+  } else {
+    statusText.textContent = 'hand open — hover a slice';
+    statusEl.classList.remove('live');
+    stopChord();
+  }
+}
+
+/* ============================================================
+   Startup
+   ============================================================ */
+const startBtn = document.getElementById('startBtn');
+const startCard = document.getElementById('startCard');
+const camErr = document.getElementById('camErr');
+const songSel = document.getElementById('songSel');
+
+songSel.addEventListener('change', ()=>{ loadSong(songSel.value); });
+
+startBtn.addEventListener('click', async ()=>{
+  startBtn.disabled = true;
+  startBtn.textContent = 'Starting…';
+  try{
+    await Tone.start();
+    await buildSynth();
+
+    handsModel = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.6
+    });
+    handsModel.onResults(onResults);
+
+    camera = new Camera(video, {
+      onFrame: async () => { await handsModel.send({image: video}); },
+      width: 640,
+      height: 480
+    });
+    await camera.start();
+
+    resizeCanvas();
+    placeWheel();
+    startCard.style.display = 'none';
+  } catch(err){
+    console.error(err);
+    camErr.style.display = 'block';
+    startBtn.disabled = false;
+    startBtn.textContent = 'Enable camera & start';
+  }
+});
+</script>
+</body>
+</html>
