@@ -66,7 +66,11 @@
   /* ---------- stage (video + overlay) ---------- */
   #stage{
     position:relative;
-    width:min(96vw, 1200px);
+    /* Capped by viewport width (96vw / 1200px) AND by viewport height minus
+       roughly what the logo bar, controls bar, gaps, and padding take up —
+       so the whole layout fits on screen without needing to scroll,
+       shrinking automatically on shorter windows instead of overflowing. */
+    width:min(96vw, 1200px, max(280px, calc((100vh - 230px) * 16 / 9)));
     aspect-ratio: 16/9;
     border-radius:18px;
     overflow:hidden;
@@ -401,7 +405,10 @@
     }
   }
   @media (max-width: 720px) and (orientation: portrait){
-    #stage{ aspect-ratio: 3/4; }
+    #stage{
+      aspect-ratio: 3/4;
+      width:min(96vw, max(220px, calc((100vh - 260px) * 3/4)));
+    }
   }
 </style>
 </head>
