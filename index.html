@@ -24,7 +24,7 @@
        margins on either side) AND by viewport height (via the stage's
        16:9 aspect ratio), so all three always match exactly and the whole
        layout fits on screen without scrolling on shorter windows. */
-    --bar-w: min(97vw, 1900px, max(320px, calc((100vh - 230px) * 16 / 9)));
+    --bar-w: min(97vw, 1900px);
   }
   @font-face{
     font-family:'Space Grotesk';
@@ -416,7 +416,7 @@
   }
   @media (max-width: 720px) and (orientation: portrait){
     :root{
-      --bar-w: min(97vw, max(220px, calc((100vh - 260px) * 3/4)));
+      --bar-w: min(97vw, 640px);
     }
     #stage{
       aspect-ratio: 3/4;
