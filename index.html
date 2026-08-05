@@ -635,6 +635,38 @@ let heldNotes = [];
 let baseVolumeDb = -8;
 let lastCompensationDb = 0;
 let transposeSemitones = 0;
+let wheelCenter = null;   // {x,y} in canvas pixels, normalized-ish (recentered on demand)
+let wheelRadiusPx = 140;
+let wheelSizeScale = 0.9; // driven by the "Size" slider — defaults to the person's usual setting
+
+/* ============================================================
+   Settings persistence — remembers song, sound, volume, wheel
+   size, and transpose across page reloads via localStorage.
+   Wrapped in try/catch since localStorage can throw (e.g. private
+   browsing, disabled storage) — persistence is a nice-to-have,
+   never something that should break the app if unavailable.
+   ============================================================ */
+const SETTINGS_KEY = 'chordWheelSettings_v1';
+
+function saveSettings(){
+  try{
+    const settings = {
+      song: document.getElementById('songSel').value,
+      sound: document.getElementById('waveSel').value,
+      vol: baseVolumeDb,
+      size: wheelSizeScale,
+      transpose: transposeSemitones,
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch(e){ /* storage unavailable — ignore */ }
+}
+
+function loadSettings(){
+  try{
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
 
 /* ============================================================
    Wheel configuration — songs drive both the chord set and how
@@ -777,11 +809,25 @@ function renderLyrics(song){
 }
 
 // Highlights every chord tag in the lyrics view that matches whatever chord
-// is currently sounding, so the sheet lights up in sync with the wheel.
+// is currently sounding, so the sheet lights up in sync with the wheel —
+// and auto-scrolls the panel to keep that line in view, so you're not stuck
+// manually scrolling the lyrics while your hands are busy playing.
 function updateLyricsHighlight(activeChordName){
+  let playingTag = null;
   document.querySelectorAll('#lyricsBody .chord-tag').forEach(tag=>{
-    tag.classList.toggle('playing', !!activeChordName && tag.dataset.chord === activeChordName);
+    const isMatch = !!activeChordName && tag.dataset.chord === activeChordName;
+    tag.classList.toggle('playing', isMatch);
+    if(isMatch) playingTag = tag;
   });
+
+  if(playingTag){
+    const lyricsTabVisible = document.getElementById('lyricsTab').style.display !== 'none';
+    if(lyricsTabVisible){
+      // 'nearest' only scrolls if the line isn't already comfortably in
+      // view — avoids a jumpy re-scroll every time the same chord repeats.
+      playingTag.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'nearest' });
+    }
+  }
 }
 
 // Re-labels every chord tag already in the lyrics view after a transpose
@@ -822,7 +868,6 @@ panelToggleEl.addEventListener('click', ()=>{
 });
 panelBackdropEl.addEventListener('click', closePanel);
 
-loadSong(Object.keys(SONGS)[0]);
 
 
 /* ============================================================
@@ -876,14 +921,16 @@ async function buildSynth(){
   baseVolumeDb = parseFloat(document.getElementById('volRange').value);
   synth.volume.value = baseVolumeDb;
 }
-document.getElementById('waveSel').addEventListener('change', buildSynth);
+document.getElementById('waveSel').addEventListener('change', ()=>{ buildSynth(); saveSettings(); });
 document.getElementById('volRange').addEventListener('input', (e)=>{
   baseVolumeDb = parseFloat(e.target.value);
   if(synth) synth.volume.value = baseVolumeDb + lastCompensationDb;
+  saveSettings();
 });
 document.getElementById('sizeRange').addEventListener('input', (e)=>{
   wheelSizeScale = parseFloat(e.target.value) / 100;
   placeWheel();
+  saveSettings();
 });
 
 const transposeValEl = document.getElementById('transposeVal');
@@ -895,13 +942,42 @@ document.getElementById('transposeDown').addEventListener('click', ()=>{
   updateTransposeLabel();
   refreshTransposedLyricLabels();
   retriggerCurrentChord();
+  saveSettings();
 });
 document.getElementById('transposeUp').addEventListener('click', ()=>{
   transposeSemitones = Math.min(12, transposeSemitones + 1);
   updateTransposeLabel();
   refreshTransposedLyricLabels();
   retriggerCurrentChord();
+  saveSettings();
 });
+
+/* ---------- restore saved settings, then load the initial song ---------- */
+(function restoreSettings(){
+  const saved = loadSettings();
+  let startingSongKey = Object.keys(SONGS)[0];
+
+  if(saved){
+    if(saved.song && SONGS[saved.song]) startingSongKey = saved.song;
+    if(saved.sound) document.getElementById('waveSel').value = saved.sound;
+    if(typeof saved.vol === 'number'){
+      baseVolumeDb = saved.vol;
+      document.getElementById('volRange').value = saved.vol;
+    }
+    if(typeof saved.size === 'number'){
+      wheelSizeScale = saved.size;
+      document.getElementById('sizeRange').value = Math.round(saved.size * 100);
+    }
+    if(typeof saved.transpose === 'number'){
+      transposeSemitones = saved.transpose;
+    }
+  }
+
+  document.getElementById('songSel').value = startingSongKey;
+  loadSong(startingSongKey);   // transposeSemitones is already restored above, so lyrics render pre-transposed
+  updateTransposeLabel();
+})();
+
 
 const calibToggleBtn = document.getElementById('calibToggle');
 calibToggleBtn.addEventListener('click', ()=>{
@@ -992,9 +1068,6 @@ const ctx = overlay.getContext('2d');
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
 
-let wheelCenter = null;   // {x,y} in canvas pixels, normalized-ish (recentered on demand)
-let wheelRadiusPx = 140;
-let wheelSizeScale = 0.9; // driven by the "Size" slider — defaults to the person's usual setting
 let camera = null;
 let handsModel = null;
 
@@ -1360,7 +1433,7 @@ const startCard = document.getElementById('startCard');
 const camErr = document.getElementById('camErr');
 const songSel = document.getElementById('songSel');
 
-songSel.addEventListener('change', ()=>{ loadSong(songSel.value); });
+songSel.addEventListener('change', ()=>{ loadSong(songSel.value); saveSettings(); });
 
 // Suggest touch on small/narrow screens (phones), hand tracking otherwise —
 // just a visual hint via the "Recommended" badge; either button always works.
