@@ -1096,7 +1096,38 @@ function placeWheel(){
   const maxX = overlay.width - wheelRadiusPx - margin;
   wheelCenter = { x: Math.min(Math.max(idealX, minX), Math.max(maxX, minX)), y: overlay.height/2 };
 }
-window.addEventListener('resize', ()=>{ resizeCanvas(); placeWheel(); });
+window.addEventListener('resize', ()=>{ resizeCanvas(); placeWheel(); fitStageWidth(); });
+
+// Sets --bar-w by actually measuring the topbar and controls bar's real
+// rendered height (rather than guessing a fixed reserve in CSS), so the
+// whole stack — logo bar, video/wheel stage, controls bar — always fits
+// within the visible viewport without needing to scroll, regardless of how
+// much browser chrome (address bar, favorites bar, tab strip) is showing,
+// or how many rows the controls wrap onto.
+function fitStageWidth(){
+  const topbarEl = document.getElementById('topbar');
+  const controlsEl = document.getElementById('controls');
+  const appEl = document.getElementById('app');
+  if(!topbarEl || !controlsEl || !appEl) return;
+
+  const appStyles = getComputedStyle(appEl);
+  const gap = parseFloat(appStyles.rowGap || appStyles.gap) || 14;
+  const paddingV = (parseFloat(appStyles.paddingTop)||0) + (parseFloat(appStyles.paddingBottom)||0);
+
+  const reserved = topbarEl.offsetHeight + controlsEl.offsetHeight + gap*2 + paddingV + 12; // +12px safety buffer
+  const availableHeight = Math.max(200, window.innerHeight - reserved);
+
+  const isPortrait = window.matchMedia('(max-width:720px) and (orientation:portrait)').matches;
+  const aspect = isPortrait ? 3/4 : 16/9;
+  const heightDerivedWidth = availableHeight * aspect;
+
+  const vwCap = window.innerWidth * 0.97;
+  const pxCap = isPortrait ? 640 : 1900;
+  const minWidth = isPortrait ? 220 : 320;
+
+  const finalWidth = Math.max(minWidth, Math.min(vwCap, pxCap, heightDerivedWidth));
+  document.documentElement.style.setProperty('--bar-w', finalWidth + 'px');
+}
 
 function fingerIsCurled(tip, pip, wrist){
   // curled if tip is closer to wrist than the pip joint is (roughly)
@@ -1490,6 +1521,7 @@ startHandBtn.addEventListener('click', async ()=>{
     resizeCanvas();
     placeWheel();
     document.getElementById('calibLabel').style.display = 'flex';
+    fitStageWidth();
     startCard.style.display = 'none';
   } catch(err){
     console.error(err);
@@ -1500,6 +1532,9 @@ startHandBtn.addEventListener('click', async ()=>{
     startHandBtn.querySelector('.mode-title').textContent = '✋ Hand tracking';
   }
 });
+
+fitStageWidth();
+window.addEventListener('load', fitStageWidth);
 </script>
 </body>
 </html>
