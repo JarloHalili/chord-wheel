@@ -125,4 +125,4 @@ Canvas 2D context is cleared and redrawn in full each tick — no dirty-rect opt
 
 ## Adding a new song
 
-Edit `songs.js` — see the inline comments there for the full chord-symbol and lyrics (`[Chord]word`) syntax. No changes to `chord-wheel.html` are needed; the song dropdown and wheel slice count both rebuild automatically from whatever's in that file.
+Edit `songs.js` — see the inline comments there for the full chord-symbol and lyrics (`[Chord]word`) syntax. No changes to `chord-wheel.html` are needed; the song dropdown and wheel slice count both rebuild automatically from whatever's in that file. test
